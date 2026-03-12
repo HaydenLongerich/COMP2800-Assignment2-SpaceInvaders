@@ -13,6 +13,7 @@ const GAME_HEIGHT = canvas.height;
 let playerImg;
 let enemyImg;
 let laserImg;
+let lifeImg;
 
 let hero;
 let gameObjects = [];
@@ -48,6 +49,8 @@ class Hero extends GameObject {
   constructor(x, y, img) {
     super(x, y, 90, 90, img, "Hero");
     this.speed = 12;
+    this.life = 3;
+    this.points = 0;
   }
 
   moveLeft() {
@@ -87,6 +90,17 @@ class Hero extends GameObject {
     const laser = new Laser(laserX, laserY, laserImg);
     gameObjects.push(laser);
     lastFireTime = Date.now();
+  }
+
+  decrementLife() {
+    this.life--;
+    if (this.life <= 0) {
+      this.dead = true;
+    }
+  }
+
+  incrementPoints() {
+    this.points += 100;
   }
 }
 
@@ -176,6 +190,24 @@ function drawBackground() {
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 }
 
+function drawText(message, x, y) {
+  ctx.fillText(message, x, y);
+}
+
+function drawPoints() {
+  ctx.font = "30px Arial";
+  ctx.fillStyle = "red";
+  ctx.textAlign = "left";
+  drawText("Points: " + hero.points, 20, canvas.height - 20);
+}
+
+function drawLife() {
+  const startX = canvas.width - 180;
+  for (let i = 0; i < hero.life; i++) {
+    ctx.drawImage(lifeImg, startX + i * 45, canvas.height - 50, 35, 35);
+  }
+}
+
 function drawGame() {
   drawBackground();
 
@@ -184,6 +216,11 @@ function drawGame() {
       obj.draw();
     }
   });
+
+  if (hero) {
+    drawPoints();
+    drawLife();
+  }
 }
 
 function updateGameObjects() {
@@ -201,6 +238,7 @@ function updateGameObjects() {
       if (intersectRect(laser.rectFromGameObject(), enemy.rectFromGameObject())) {
         laser.dead = true;
         enemy.dead = true;
+        hero.incrementPoints();
       }
     });
   });
@@ -208,8 +246,8 @@ function updateGameObjects() {
   if (!hero.dead) {
     enemies.forEach(enemy => {
       if (intersectRect(hero.rectFromGameObject(), enemy.rectFromGameObject())) {
-        hero.dead = true;
         enemy.dead = true;
+        hero.decrementLife();
       }
     });
   }
@@ -261,9 +299,9 @@ async function startGame() {
     playerImg = await loadAsset("./assets/player.png");
     enemyImg = await loadAsset("./assets/enemyShip.png");
     laserImg = await loadAsset("./assets/laserRed.png");
+    lifeImg = await loadAsset("./assets/life.png");
 
     hero = new Hero(GAME_WIDTH / 2 - 45, GAME_HEIGHT - 150, playerImg);
-
     gameObjects = [hero, ...createEnemyWave()];
 
     window.addEventListener("keydown", onKeyDown);
