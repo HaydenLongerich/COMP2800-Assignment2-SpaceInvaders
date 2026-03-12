@@ -5,11 +5,19 @@ const KEY_LEFT = 37;
 const KEY_UP = 38;
 const KEY_RIGHT = 39;
 const KEY_DOWN = 40;
+const KEY_SPACE = 32;
+
 const GAME_WIDTH = canvas.width;
 const GAME_HEIGHT = canvas.height;
 
-let heroImg;
+let playerImg;
 let enemyImg;
+let laserImg;
+
+let hero;
+let gameObjects = [];
+let lastFireTime = 0;
+const FIRE_COOLDOWN = 400;
 
 class GameObject {
   constructor(x, y, width, height, img, type) {
@@ -25,6 +33,15 @@ class GameObject {
   draw() {
     ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
   }
+
+  rectFromGameObject() {
+    return {
+      top: this.y,
+      left: this.x,
+      bottom: this.y + this.height,
+      right: this.x + this.width
+    };
+  }
 }
 
 class Hero extends GameObject {
@@ -35,9 +52,7 @@ class Hero extends GameObject {
 
   moveLeft() {
     this.x -= this.speed;
-    if (this.x < 0) {
-      this.x = 0;
-    }
+    if (this.x < 0) this.x = 0;
   }
 
   moveRight() {
@@ -49,9 +64,7 @@ class Hero extends GameObject {
 
   moveUp() {
     this.y -= this.speed;
-    if (this.y < 0) {
-      this.y = 0;
-    }
+    if (this.y < 0) this.y = 0;
   }
 
   moveDown() {
@@ -59,6 +72,21 @@ class Hero extends GameObject {
     if (this.y > GAME_HEIGHT - this.height) {
       this.y = GAME_HEIGHT - this.height;
     }
+  }
+
+  canFire() {
+    return Date.now() - lastFireTime >= FIRE_COOLDOWN;
+  }
+
+  fire() {
+    if (!this.canFire()) return;
+
+    const laserX = this.x + this.width / 2 - 4.5;
+    const laserY = this.y - 20;
+
+    const laser = new Laser(laserX, laserY, laserImg);
+    gameObjects.push(laser);
+    lastFireTime = Date.now();
   }
 }
 
@@ -86,6 +114,21 @@ class Enemy extends GameObject {
   }
 }
 
+class Laser extends GameObject {
+  constructor(x, y, img) {
+    super(x, y, 9, 33, img, "Laser");
+    this.speed = 15;
+  }
+
+  update() {
+    this.y -= this.speed;
+
+    if (this.y + this.height < 0) {
+      this.dead = true;
+    }
+  }
+}
+
 function loadAsset(path) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -93,6 +136,15 @@ function loadAsset(path) {
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`Failed to load image: ${path}`));
   });
+}
+
+function intersectRect(r1, r2) {
+  return !(
+    r2.left > r1.right ||
+    r2.right < r1.left ||
+    r2.top > r1.bottom ||
+    r2.bottom < r1.top
+  );
 }
 
 function createEnemyWave() {
@@ -119,9 +171,6 @@ function createEnemyWave() {
   return enemies;
 }
 
-let hero;
-let enemies = [];
-
 function drawBackground() {
   ctx.fillStyle = "black";
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
@@ -129,36 +178,62 @@ function drawBackground() {
 
 function drawGame() {
   drawBackground();
-  hero.draw();
 
-  enemies.forEach(enemy => {
-    enemy.draw();
+  gameObjects.forEach(obj => {
+    if (!obj.dead) {
+      obj.draw();
+    }
   });
 }
 
-function updateGame() {
-  enemies.forEach(enemy => {
-    enemy.update();
+function updateGameObjects() {
+  gameObjects.forEach(obj => {
+    if (!obj.dead && typeof obj.update === "function") {
+      obj.update();
+    }
   });
+
+  const enemies = gameObjects.filter(obj => obj.type === "Enemy" && !obj.dead);
+  const lasers = gameObjects.filter(obj => obj.type === "Laser" && !obj.dead);
+
+  lasers.forEach(laser => {
+    enemies.forEach(enemy => {
+      if (intersectRect(laser.rectFromGameObject(), enemy.rectFromGameObject())) {
+        laser.dead = true;
+        enemy.dead = true;
+      }
+    });
+  });
+
+  if (!hero.dead) {
+    enemies.forEach(enemy => {
+      if (intersectRect(hero.rectFromGameObject(), enemy.rectFromGameObject())) {
+        hero.dead = true;
+        enemy.dead = true;
+      }
+    });
+  }
+
+  gameObjects = gameObjects.filter(obj => !obj.dead);
 }
 
 function gameLoop() {
-  updateGame();
+  updateGameObjects();
   drawGame();
 }
 
 function onKeyDown(e) {
-  switch (e.keyCode) {
-    case KEY_LEFT:
-    case KEY_RIGHT:
-    case KEY_UP:
-    case KEY_DOWN:
-    case 32:
-      e.preventDefault();
-      break;
-    default:
-      break;
+  if (
+    e.keyCode === KEY_LEFT ||
+    e.keyCode === KEY_RIGHT ||
+    e.keyCode === KEY_UP ||
+    e.keyCode === KEY_DOWN ||
+    e.keyCode === KEY_SPACE
+  ) {
+    e.preventDefault();
   }
+
+  if (!hero || hero.dead) return;
 
   switch (e.keyCode) {
     case KEY_LEFT:
@@ -173,6 +248,9 @@ function onKeyDown(e) {
     case KEY_DOWN:
       hero.moveDown();
       break;
+    case KEY_SPACE:
+      hero.fire();
+      break;
     default:
       break;
   }
@@ -180,11 +258,13 @@ function onKeyDown(e) {
 
 async function startGame() {
   try {
-    heroImg = await loadAsset("./assets/player.png");
+    playerImg = await loadAsset("./assets/player.png");
     enemyImg = await loadAsset("./assets/enemyShip.png");
+    laserImg = await loadAsset("./assets/laserRed.png");
 
-    hero = new Hero(GAME_WIDTH / 2 - 45, GAME_HEIGHT - 150, heroImg);
-    enemies = createEnemyWave();
+    hero = new Hero(GAME_WIDTH / 2 - 45, GAME_HEIGHT - 150, playerImg);
+
+    gameObjects = [hero, ...createEnemyWave()];
 
     window.addEventListener("keydown", onKeyDown);
 
