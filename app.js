@@ -6,6 +6,7 @@ const KEY_UP = 38;
 const KEY_RIGHT = 39;
 const KEY_DOWN = 40;
 const KEY_SPACE = 32;
+const KEY_ENTER = 13;
 
 const GAME_WIDTH = canvas.width;
 const GAME_HEIGHT = canvas.height;
@@ -18,6 +19,10 @@ let lifeImg;
 let hero;
 let gameObjects = [];
 let lastFireTime = 0;
+let gameLoopId = null;
+let gameOver = false;
+let gameWon = false;
+
 const FIRE_COOLDOWN = 400;
 
 class GameObject {
@@ -82,7 +87,7 @@ class Hero extends GameObject {
   }
 
   fire() {
-    if (!this.canFire()) return;
+    if (!this.canFire() || gameOver) return;
 
     const laserX = this.x + this.width / 2 - 4.5;
     const laserY = this.y - 20;
@@ -161,6 +166,15 @@ function intersectRect(r1, r2) {
   );
 }
 
+function isHeroDead() {
+  return hero.life <= 0;
+}
+
+function isEnemiesDead() {
+  const enemies = gameObjects.filter(obj => obj.type === "Enemy" && !obj.dead);
+  return enemies.length === 0;
+}
+
 function createEnemyWave() {
   const enemies = [];
   const rows = 5;
@@ -190,15 +204,28 @@ function drawBackground() {
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 }
 
-function drawText(message, x, y) {
+function drawText(message, x, y, color = "red", size = "30px") {
+  ctx.font = `${size} Arial`;
+  ctx.fillStyle = color;
+  ctx.textAlign = "left";
   ctx.fillText(message, x, y);
 }
 
+function drawCenteredMessage(message, color = "red") {
+  ctx.font = "36px Arial";
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+
+  const lines = message.split("\n");
+  const startY = canvas.height / 2 - 30;
+
+  lines.forEach((line, index) => {
+    ctx.fillText(line, canvas.width / 2, startY + index * 50);
+  });
+}
+
 function drawPoints() {
-  ctx.font = "30px Arial";
-  ctx.fillStyle = "red";
-  ctx.textAlign = "left";
-  drawText("Points: " + hero.points, 20, canvas.height - 20);
+  drawText(`Points: ${hero.points}`, 20, canvas.height - 20, "red", "30px");
 }
 
 function drawLife() {
@@ -221,6 +248,26 @@ function drawGame() {
     drawPoints();
     drawLife();
   }
+
+  if (gameOver) {
+    if (gameWon) {
+      drawCenteredMessage("Victory!\nPress Enter to play again", "green");
+    } else {
+      drawCenteredMessage("Game Over\nPress Enter to restart", "red");
+    }
+  }
+}
+
+function endGame(win) {
+  gameOver = true;
+  gameWon = win;
+
+  if (gameLoopId) {
+    clearInterval(gameLoopId);
+    gameLoopId = null;
+  }
+
+  drawGame();
 }
 
 function updateGameObjects() {
@@ -253,10 +300,36 @@ function updateGameObjects() {
   }
 
   gameObjects = gameObjects.filter(obj => !obj.dead);
+
+  if (isHeroDead()) {
+    endGame(false);
+    return;
+  }
+
+  if (isEnemiesDead()) {
+    endGame(true);
+  }
 }
 
 function gameLoop() {
+  if (gameOver) return;
   updateGameObjects();
+  drawGame();
+}
+
+function resetGame() {
+  if (gameLoopId) {
+    clearInterval(gameLoopId);
+  }
+
+  lastFireTime = 0;
+  gameOver = false;
+  gameWon = false;
+
+  hero = new Hero(GAME_WIDTH / 2 - 45, GAME_HEIGHT - 150, playerImg);
+  gameObjects = [hero, ...createEnemyWave()];
+
+  gameLoopId = setInterval(gameLoop, 1000 / 60);
   drawGame();
 }
 
@@ -266,9 +339,17 @@ function onKeyDown(e) {
     e.keyCode === KEY_RIGHT ||
     e.keyCode === KEY_UP ||
     e.keyCode === KEY_DOWN ||
-    e.keyCode === KEY_SPACE
+    e.keyCode === KEY_SPACE ||
+    e.keyCode === KEY_ENTER
   ) {
     e.preventDefault();
+  }
+
+  if (gameOver) {
+    if (e.keyCode === KEY_ENTER) {
+      resetGame();
+    }
+    return;
   }
 
   if (!hero || hero.dead) return;
@@ -301,12 +382,9 @@ async function startGame() {
     laserImg = await loadAsset("./assets/laserRed.png");
     lifeImg = await loadAsset("./assets/life.png");
 
-    hero = new Hero(GAME_WIDTH / 2 - 45, GAME_HEIGHT - 150, playerImg);
-    gameObjects = [hero, ...createEnemyWave()];
-
     window.addEventListener("keydown", onKeyDown);
 
-    setInterval(gameLoop, 1000 / 60);
+    resetGame();
   } catch (error) {
     console.error(error);
   }
